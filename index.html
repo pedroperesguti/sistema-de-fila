@@ -143,10 +143,13 @@ button:focus-visible { outline: 3px solid var(--volt); outline-offset: 2px; }
   bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   display: flex; gap: 12px; align-items: flex-end;
 }
-.pad.brake { width: 74px; height: 74px; border-radius: 50%; }
-.pad.drift { width: 108px; height: 108px; border-radius: 50%; font-family: var(--f-display); font-size: 17px; letter-spacing: .02em; }
-.pad.drift.c1 { border-color: var(--ice); box-shadow: 0 0 18px rgba(73,182,255,.6); }
-.pad.drift.c2 { border-color: var(--spark); box-shadow: 0 0 22px rgba(255,106,26,.75); }
+.pedal { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; }
+.pedal svg { width: 28px; height: 28px; }
+.pad.gas { width: 100px; height: 124px; border-radius: 24px; }
+.pad.brake { width: 88px; height: 100px; border-radius: 22px; }
+.pad.gas.on { background: rgba(138, 201, 38, .42); border-color: #8ac926; }
+.pad.brake.on { background: rgba(230, 57, 70, .45); border-color: #e63946; }
+.grip-lbl { font-size: 10px; letter-spacing: .18em; font-weight: 700; opacity: .85; }
 
 /* ---------- Telas ---------- */
 .overlay {
@@ -234,8 +237,8 @@ tr.me td.t { color: var(--volt); }
 @media (orientation: landscape) { #rot { display: none; } }
 @media (max-height: 420px) {
   .pad { width: 74px; height: 74px; }
-  .pad.drift { width: 94px; height: 94px; }
-  .pad.brake { width: 64px; height: 64px; }
+  .pad.gas { width: 88px; height: 106px; }
+  .pad.brake { width: 76px; height: 88px; }
   .pos { font-size: 38px; }
   .card { padding: 14px 16px; gap: 10px 22px; }
   h1 { font-size: 36px; }
@@ -265,6 +268,7 @@ tr.me td.t { color: var(--volt); }
     <div class="speedo">
       <div><span class="v" id="hSpd">0</span> <span class="u">KM/H</span></div>
       <div class="charge"><i id="hCharge"></i></div>
+      <div class="grip-lbl" id="hGrip">ADERÊNCIA</div>
     </div>
 
     <div class="steer" id="steerBtns">
@@ -275,17 +279,17 @@ tr.me td.t { color: var(--volt); }
       <div class="rail"><div class="hint">ARRASTE PARA VIRAR</div><div class="knob" id="knob"></div></div>
     </div>
     <div class="actions">
-      <div class="pad brake" id="bBrake" aria-label="Freio e ré">FREIO</div>
-      <div class="pad drift" id="bDrift" aria-label="Drift">DRIFT</div>
+      <div class="pad pedal brake" id="bBrake" aria-label="Freio e ré"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20 4 10h5V4h6v6h5z"/></svg>FREIO</div>
+      <div class="pad pedal gas" id="bGas" aria-label="Acelerador"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4 20 14h-5v6H9v-6H4z"/></svg>ACELERAR</div>
     </div>
   </div>
 
   <div class="overlay" id="menu">
     <div class="card menu">
       <div>
-        <p class="eyebrow">Kart · 3 voltas · 8 pilotos</p>
+        <p class="eyebrow">Simulação de kart · 3 voltas · 8 pilotos</p>
         <h1>Circuito <span>Faísca</span></h1>
-        <p class="how">O kart <b>acelera sozinho</b>. Vire com as setas, freie para dar ré. Segure <b>DRIFT</b> numa curva até as faíscas ficarem azuis ou laranja e solte para ganhar <b>turbo</b>.</p>
+        <p class="how">Pilote como num kart de verdade: segure <b>ACELERAR</b>, freie <b>antes</b> das curvas e dose a direção. Entrou rápido demais, o kart <b>sai de frente</b>. Na grama e na brita ele escorrega e perde velocidade.</p>
         <p class="rec">Seu recorde no <span id="recDiff">Médio</span>: <b id="rec">—</b></p>
       </div>
       <div class="opts">
@@ -305,6 +309,7 @@ tr.me td.t { color: var(--volt); }
           </div>
         </div>
         <div class="toggles">
+          <button class="tog" id="tGas">Acelerar sozinho</button>
           <button class="tog" id="tAssist">Ajuda na direção</button>
           <button class="tog" id="tSound">Som</button>
           <button class="tog" id="tVibe">Vibração</button>
@@ -357,19 +362,23 @@ const fmt = (t) => {
 };
 
 // ================= Configuração =================
+// Unidades reais: metros, segundos, kg. Kart 125cc com piloto.
+const G = 9.81;
 const CFG = {
   N: 1400, halfW: 7, curbW: 1.3, wall: 12.5,
-  vmax: 28, accel: 15, brake: 30, reverseMax: 8, coast: 3,
-  turn: 2.3, grip: 11, gripDrift: 2.6,
-  offroad: 0.55, boost: 1.38,
+  mass: 165, power: 9500, fMax: 1150, dragK: 0.36, crr: 0.015,
+  mu: 1.4, muOff: 0.5, crrOff: 22,          // pneu slick no asfalto; grama/brita
+  brake: 10.5, reverseAcc: 2, reverseMax: 4,
+  wb: 1.05, steerLock: 0.38, steerFade: 10, yawLag: 0.07,
   radius: 1.15, laps: 3, DT: 1 / 60, kmh: 3.6,
 };
+// Bots usam o mesmo kart; a diferença é o quanto exploram o limite do pneu e onde freiam.
 const DIFF = {
-  facil:   { name: 'Fácil',   vmax: 0.84, latAcc: 21, brakeDec: 16, noise: 0.16, line: 0.55, catchUp: 0.03, slowDown: 0.09, aggr: 0.2 },
-  medio:   { name: 'Médio',   vmax: 0.93, latAcc: 25, brakeDec: 18, noise: 0.09, line: 0.8,  catchUp: 0.05, slowDown: 0.05, aggr: 0.5 },
-  dificil: { name: 'Difícil', vmax: 1.0,  latAcc: 29, brakeDec: 20, noise: 0.04, line: 1.0,  catchUp: 0.07, slowDown: 0.025, aggr: 0.85 },
+  facil:   { name: 'Fácil',   grip: 0.62, brakeF: 0.55, noise: 0.006,  line: 0.55, aggr: 0.2,  engine: 0.95 },
+  medio:   { name: 'Médio',   grip: 0.82, brakeF: 0.75, noise: 0.003,  line: 0.8,  aggr: 0.5,  engine: 0.99 },
+  dificil: { name: 'Difícil', grip: 0.92, brakeF: 0.86, noise: 0.0015, line: 1.0,  aggr: 0.85, engine: 1.0 },
 };
-const AUTO = { vmax: 1, latAcc: 28, brakeDec: 20, noise: 0.02, line: 1, aggr: 1 };
+const AUTO = { grip: 0.93, brakeF: 0.88, noise: 0.001, line: 1, aggr: 1, engine: 1 };
 const RACERS = [
   ['Bia', '#e63946'], ['Rafa', '#2a9d8f'], ['Tito', '#f4a261'], ['Lua', '#7b4fc9'],
   ['Zeca', '#3a86ff'], ['Nina', '#8ac926'], ['Duda', '#ff70a6'], ['Você', '#ffd23f'],
@@ -380,7 +389,7 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* sem armazenamento */ } },
 };
-const settings = Object.assign({ diff: 'medio', ctl: 'botoes', assist: true, sound: true, vibe: true }, store.get('cf.settings', {}));
+const settings = Object.assign({ diff: 'medio', ctl: 'botoes', autoGas: false, assist: false, sound: true, vibe: true }, store.get('cf2.settings', {}));
 
 // ================= Pista =================
 const CTRL = [[0,0],[60,-5],[110,10],[140,50],[130,95],[95,110],[70,90],[55,60],[25,55],[0,80],[-20,120],[-60,130],[-100,110],[-115,70],[-100,30],[-60,10]]
@@ -534,11 +543,10 @@ const geo = {
   body: new T.BoxGeometry(2.3, 0.42, 1.3), nose: new T.BoxGeometry(0.8, 0.28, 1.0), pod: new T.BoxGeometry(1.3, 0.3, 0.25),
   wheel: new T.CylinderGeometry(0.38, 0.38, 0.34, 10), torso: new T.BoxGeometry(0.55, 0.6, 0.62),
   head: new T.SphereGeometry(0.38, 10, 8), visor: new T.BoxGeometry(0.12, 0.18, 0.46), wing: new T.BoxGeometry(0.3, 0.08, 1.5),
-  flame: new T.ConeGeometry(0.28, 1.4, 8), shadow: new T.PlaneGeometry(3.4, 2.4),
+  shadow: new T.PlaneGeometry(3.4, 2.4),
 };
 const matDark = new T.MeshLambertMaterial({ color: '#22252c' });
 const matVisor = new T.MeshLambertMaterial({ color: '#0e1116' });
-const matFlame = new T.MeshBasicMaterial({ color: '#ffb02e', transparent: true, opacity: 0.9, blending: T.AdditiveBlending, depthWrite: false });
 const matShadow = new T.MeshBasicMaterial({ map: texShadow, transparent: true, depthWrite: false });
 function makeKartMesh(color) {
   const g = new T.Group();
@@ -557,18 +565,17 @@ function makeKartMesh(color) {
     const piv = new T.Group(); piv.position.set(x, 0.38, z); g.add(piv);
     const w = new T.Mesh(geo.wheel, matDark); w.rotation.x = Math.PI / 2; piv.add(w); wheels.push(piv);
   }
-  const flame = add(geo.flame, matFlame, -1.75, 0.55, 0); flame.rotation.z = Math.PI / 2; flame.visible = false;
   const sh = new T.Mesh(geo.shadow, matShadow); sh.rotation.x = -Math.PI / 2; sh.position.y = 0.06; g.add(sh);
   scene.add(g);
-  return { g, wheels, flame };
+  return { g, wheels };
 }
 
 class Kart {
   constructor(id, name, color, isPlayer) {
     this.id = id; this.name = name; this.color = color; this.isPlayer = isPlayer;
     this.mesh = makeKartMesh(color);
-    this.input = { throttle: 0, brake: false, steer: 0, drift: false };
-    this.prof = AUTO; this.vmaxMul = 1; this.bias = 0;
+    this.input = { throttle: 0, brake: 0, steer: 0 };
+    this.prof = AUTO; this.engine = 1; this.bias = 0;
     this.reset(0, 0, 0);
   }
   reset(idx, lat, th) {
@@ -576,56 +583,64 @@ class Kart {
     this.vx = this.vz = 0; this.speed = 0; this.idx = idx; this.prevIdx = idx;
     this.lap = -1; this.cp1 = this.cp2 = true; this.prog = 0;
     this.finished = false; this.finishTime = Infinity; this.lapStart = 0; this.bestLap = Infinity; this.lapTimes = [];
-    this.boostT = 0; this.drift = false; this.driftDir = 0; this.charge = 0; this.visDrift = 0;
-    this.offroad = false; this.lat = lat; this.wallHit = 0; this.rubber = 1; this.avoid = 0;
+    this.w = 0; this.aLong = 0; this.aLat = 0; this.slide = 0; this.under = 0; this.topSpeed = 0;
+    this.offroad = false; this.lat = lat; this.wallHit = 0; this.avoid = 0;
     this.stuckT = 0; this.recoverT = 0; this.wrongT = 0; this.ghostT = 0; this.respawns = 0;
     this.noiseT = Math.random() * 100; this.place = 0;
-    for (const k in this.input) this.input[k] = k === 'drift' || k === 'brake' ? false : 0;
+    for (const k in this.input) this.input[k] = 0;
   }
   respawn() {
     const i = this.idx;
     this.x = px[i]; this.z = pz[i]; this.th = Math.atan2(tz[i], tx[i]);
-    this.vx = this.vz = 0; this.speed = 0; this.drift = false; this.charge = 0;
+    this.vx = this.vz = 0; this.speed = 0; this.w = 0; this.aLong = 0;
     this.stuckT = 0; this.recoverT = 0; this.wrongT = 0; this.ghostT = 1.2; this.respawns++;
   }
 }
 
 // ================= Física =================
+// Ângulo máximo da direção cai com a velocidade (como o piloto faz com as mãos).
+function steerMax(v) { const r = v / CFG.steerFade; return CFG.steerLock / (1 + r * r); }
 function stepKart(k, dt) {
   const inp = k.input;
+  const aMax = CFG.mu * G * (k.offroad ? CFG.muOff / CFG.mu : 1); // limite de aderência (círculo de atrito)
   let c = Math.cos(k.th), s = Math.sin(k.th);
   let fwd = k.vx * c + k.vz * s;
-  const sp = Math.abs(fwd);
-  // drift: começa segurando o botão com direção e velocidade; solta = turbo
-  if (!k.drift && inp.drift && Math.abs(inp.steer) > 0.3 && fwd > 10) { k.drift = true; k.driftDir = Math.sign(inp.steer); k.charge = 0; }
-  if (k.drift && (!inp.drift || fwd < 7)) {
-    if (!inp.drift && k.charge >= 0.7) giveBoost(k, k.charge >= 1.6 ? 1.3 : 0.7);
-    k.drift = false; k.charge = 0;
-  }
-  const fv = Math.min(sp / 7, 1) * (1 - 0.33 * Math.min(sp / CFG.vmax, 1.2));
-  let w;
-  if (k.drift) {
-    w = k.driftDir * CFG.turn * fv * (0.95 + 0.55 * inp.steer * k.driftDir);
-    k.charge += dt * (0.8 + 0.6 * Math.max(0, inp.steer * k.driftDir));
-  } else w = inp.steer * CFG.turn * fv * (fwd < -0.5 ? -1 : 1);
-  k.th += w * dt;
+  const v = Math.abs(fwd);
+  // Direção: modelo de bicicleta. Se a curva pedir mais aderência do que sobra, o kart sai de frente.
+  const aLatCap = Math.sqrt(Math.max(0, aMax * aMax - k.aLong * k.aLong));
+  let wT = fwd * Math.tan(inp.steer * steerMax(v)) / CFG.wb;
+  k.under = 0;
+  if (v > 0.5 && Math.abs(fwd * wT) > aLatCap) { k.under = Math.abs(fwd * wT) / Math.max(aLatCap, 0.1) - 1; wT = Math.sign(wT) * aLatCap / v; }
+  k.w += (wT - k.w) * Math.min(1, dt / CFG.yawLag);
+  k.th += k.w * dt;
   c = Math.cos(k.th); s = Math.sin(k.th);
   fwd = k.vx * c + k.vz * s;
   let lat = -k.vx * s + k.vz * c;
-  const top = CFG.vmax * k.vmaxMul * k.rubber * (k.offroad ? CFG.offroad : 1) * (k.boostT > 0 ? CFG.boost : 1);
-  if (inp.brake) {
-    if (fwd > 0.5) fwd -= CFG.brake * dt; else fwd = Math.max(fwd - 10 * dt, -CFG.reverseMax);
+  // Pneus seguram a velocidade lateral só até o limite; o resto vira derrapagem.
+  const fix = Math.min(Math.abs(lat), aLatCap * dt);
+  k.aLat = fix / dt;
+  lat -= Math.sign(lat) * fix;
+  k.slide = Math.abs(lat);
+  // Longitudinal: motor limitado por potência, freio, arrasto e resistência de rolagem.
+  const longCap = Math.sqrt(Math.max(0, aMax * aMax - k.aLat * k.aLat));
+  let aL = 0;
+  if (inp.brake > 0) {
+    if (fwd > 0.3) aL = -Math.min(CFG.brake * inp.brake, longCap);
+    else aL = -CFG.reverseAcc; // ré lenta (para sair de enrascadas)
   } else if (inp.throttle > 0) {
-    if (fwd < top) fwd += CFG.accel * inp.throttle * Math.max(0.15, 1 - fwd / top) * dt * (k.boostT > 0 ? 1.8 : 1);
-  } else {
-    fwd -= Math.sign(fwd) * Math.min(Math.abs(fwd), CFG.coast * dt);
+    if (fwd < -0.3) aL = Math.min(CFG.brake, longCap);
+    else aL = Math.min(inp.throttle * k.engine * Math.min(CFG.fMax, CFG.power / Math.max(v, 1)) / CFG.mass, longCap);
   }
-  if (fwd > top) fwd += (top - fwd) * Math.min(1, 2.2 * dt);
-  if (k.boostT > 0) k.boostT -= dt;
-  if (k.drift) lat -= k.driftDir * sp * 0.25 * dt;
-  lat *= Math.exp(-(k.drift ? CFG.gripDrift : CFG.grip) * dt);
+  let nf = fwd + aL * dt;
+  if (fwd > 0 && inp.brake > 0) nf = Math.max(nf, 0);
+  const res = CFG.dragK * fwd * fwd / CFG.mass + CFG.crr * (k.offroad ? CFG.crrOff : 1) * G;
+  if (nf > 0) nf = Math.max(0, nf - res * dt); else if (nf < 0) nf = Math.min(0, nf + res * dt);
+  if (nf < -CFG.reverseMax) nf = -CFG.reverseMax;
+  k.aLong = (nf - fwd) / dt;
+  fwd = nf;
   k.vx = c * fwd - s * lat; k.vz = s * fwd + c * lat;
   k.x += k.vx * dt; k.z += k.vz * dt; k.speed = fwd;
+  if (fwd > k.topSpeed) k.topSpeed = fwd;
   if (k.ghostT > 0) k.ghostT -= dt;
   // limites da pista
   k.idx = nearestIdx(k.x, k.z, k.idx, 24);
@@ -637,13 +652,13 @@ function stepKart(k, dt) {
     const sg = Math.sign(lt), push = Math.abs(lt) - W;
     k.x -= nx[i] * sg * push; k.z -= nz[i] * sg * push;
     const vn = k.vx * nx[i] + k.vz * nz[i];
-    if (vn * sg > 0) { k.vx -= nx[i] * vn * 1.3; k.vz -= nz[i] * vn * 1.3; k.vx *= 0.985; k.vz *= 0.985; k.wallHit = Math.abs(vn); }
+    if (vn * sg > 0) {
+      // batida: perde quase toda a velocidade contra o muro e parte da velocidade ao longo dele
+      k.vx -= nx[i] * vn * 1.2; k.vz -= nz[i] * vn * 1.2;
+      const f = Math.max(0.5, 1 - 0.06 * Math.abs(vn)); k.vx *= f; k.vz *= f; k.w *= 0.3;
+      k.wallHit = Math.abs(vn);
+    }
   }
-}
-function giveBoost(k, t) {
-  k.boostT = Math.max(k.boostT, t);
-  const c = Math.cos(k.th), s = Math.sin(k.th); k.vx += c * 3; k.vz += s * 3;
-  if (k.isPlayer && !sim) { sfx.boost(); buzz(25); fovKick = 1; }
 }
 function collide(karts) {
   const R2 = CFG.radius * 2;
@@ -656,7 +671,7 @@ function collide(karts) {
     A.x -= ux * ov; A.z -= uz * ov; B.x += ux * ov; B.z += uz * ov;
     const rv = (B.vx - A.vx) * ux + (B.vz - A.vz) * uz;
     if (rv < 0) {
-      const j = -(1.3) * rv / 2;
+      const j = -(1.3) * rv / 2; // coeficiente de restituição 0,3, massas iguais
       A.vx -= ux * j; A.vz -= uz * j; B.vx += ux * j; B.vz += uz * j;
       if ((A.isPlayer || B.isPlayer) && !sim && -rv > 3) { buzz(30); sfx.bump(); }
     }
@@ -665,7 +680,7 @@ function collide(karts) {
 
 // ================= Corrida =================
 let karts = [], player = null, state = 'menu', raceT = 0, countT = 0, finT = 0, stepN = 0, sim = false, autopilot = false;
-let diff = DIFF[settings.diff] || DIFF.medio, lastCount = '', fovKick = 0, finalLapShown = false, standings = [];
+let diff = DIFF[settings.diff] || DIFF.medio, lastCount = '', finalLapShown = false, standings = [];
 for (let i = 0; i < 8; i++) karts.push(new Kart(i, RACERS[i][0], RACERS[i][1], i === 7));
 player = karts[7];
 
@@ -682,8 +697,8 @@ function setupRace(dkey) {
   diff = DIFF[dkey] || DIFF.medio;
   placeGrid();
   karts.forEach((k) => {
-    if (k.isPlayer) { k.prof = AUTO; k.vmaxMul = 1; }
-    else { k.prof = diff; k.vmaxMul = diff.vmax * (0.97 + Math.random() * 0.06); k.bias = (Math.random() - 0.5) * 1.6; }
+    if (k.isPlayer) { k.prof = AUTO; k.engine = 1; }
+    else { k.prof = diff; k.engine = diff.engine * (0.985 + Math.random() * 0.03); k.bias = (Math.random() - 0.5) * 1.6; }
   });
   raceT = 0; finT = 0; stepN = 0; finalLapShown = false; standings = karts.slice();
 }
@@ -723,7 +738,7 @@ function botThink(k, dt) {
   const c = Math.cos(k.th), s = Math.sin(k.th);
   // recuperação: preso ou na contramão
   if (k.recoverT > 0) {
-    k.recoverT -= dt; inp.throttle = 0; inp.brake = true; inp.drift = false;
+    k.recoverT -= dt; inp.throttle = 0; inp.brake = 1;
     inp.steer = -Math.sign(wrapA(Math.atan2(tz[k.idx], tx[k.idx]) - k.th)) || 1; return;
   }
   if (Math.abs(k.speed) < 2) k.stuckT += dt; else k.stuckT = Math.max(0, k.stuckT - dt * 2);
@@ -751,51 +766,46 @@ function botThink(k, dt) {
   k.avoid += (want - k.avoid) * Math.min(1, dt * 3.5);
   const tl = clamp(lineOff[j] * P.line + k.avoid + k.bias, -(H - 1.3), H - 1.3);
   const gx = px[j] + nx[j] * tl, gz = pz[j] + nz[j] * tl;
-  const da = wrapA(Math.atan2(gz - k.z, gx - k.x) - k.th);
+  // pure pursuit: curvatura do arco até o alvo -> ângulo de direção
+  const ldx = gx - k.x, ldz = gz - k.z, Ld = Math.max(1, Math.hypot(ldx, ldz));
+  const alpha = wrapA(Math.atan2(ldz, ldx) - k.th);
   k.noiseT += dt;
-  const nz_ = P.noise * Math.sin(k.noiseT * 1.7 + k.id) * Math.sin(k.noiseT * 0.63 + k.id * 2);
-  inp.steer = clamp(da * 2.4 + nz_, -1, 1);
-  // velocidade alvo pela curvatura à frente
-  let vt = CFG.vmax * k.vmaxMul * k.rubber * (k.offroad ? CFG.offroad : 1) * (k.boostT > 0 ? CFG.boost : 1);
-  const sa = Math.sqrt(P.latAcc), b2 = 2 * P.brakeDec;
-  for (let m = 0; m < 96; m += 3) {
+  const err = P.noise * Math.sin(k.noiseT * 1.7 + k.id) * Math.sin(k.noiseT * 0.63 + k.id * 2);
+  const delta = Math.atan(2 * Math.sin(alpha) / Ld * CFG.wb) + err;
+  inp.steer = clamp(delta / steerMax(v), -1, 1);
+  // velocidade alvo: limite de aderência nas curvas à frente + distância de frenagem
+  let vt = 60;
+  const sa = Math.sqrt(P.grip * CFG.mu * G * (k.offroad ? CFG.muOff / CFG.mu : 1)), b2 = 2 * P.brakeF * CFG.brake;
+  for (let m = 0; m < 120; m += 3) {
     const vs = vUnit[(k.idx + m) % N] * sa, allow = Math.sqrt(vs * vs + b2 * m * ds);
     if (allow < vt) vt = allow;
   }
   if (blocker && Math.random() > P.aggr && blocker.speed > 4) vt = Math.min(vt, blocker.speed + 0.5);
-  inp.throttle = k.speed < vt ? 1 : 0;
-  inp.brake = k.speed > vt + 3;
-  inp.drift = false;
-}
-function rubberBand() {
-  if (!player || player.finished) { karts.forEach((k) => (k.rubber = 1)); return; }
-  for (const k of karts) {
-    if (k.isPlayer) continue;
-    const gap = player.prog - k.prog;
-    let r = 1;
-    if (gap > 60) r = 1 + Math.min(1, (gap - 60) / 250) * diff.catchUp;
-    else if (gap < -60) r = 1 - Math.min(1, (-gap - 60) / 250) * diff.slowDown;
-    k.rubber += (r - k.rubber) * 0.2;
-  }
+  inp.throttle = clamp((vt - k.speed) * 0.8, 0, 1);
+  inp.brake = clamp((k.speed - vt - 0.4) * 0.5, 0, 1);
 }
 
 // ================= Entrada do jogador =================
-const pin = { steer: 0, brake: false, drift: false, kL: false, kR: false, kB: false, kD: false };
+const pin = { steer: 0, brake: false, gas: false, kL: false, kR: false, kB: false, kG: false };
 function playerInput(k, dt) {
   const inp = k.input;
   let target = pin.steer + (pin.kR ? 1 : 0) - (pin.kL ? 1 : 0);
   target = clamp(target, -1, 1);
-  if (settings.assist && !k.drift) {
+  if (settings.assist) {
     const edge = Math.abs(k.lat) - (H - 1.4);
     const out = (Math.cos(k.th) * nx[k.idx] + Math.sin(k.th) * nz[k.idx]) * Math.sign(k.lat);
     if (edge > 0 && out > 0.05) target = clamp(target - Math.sign(k.lat) * Math.min(0.7, edge * 0.35 + out), -1, 1);
   }
-  inp.steer += (target - inp.steer) * Math.min(1, dt * (settings.ctl === 'arrastar' ? 20 : 11));
-  inp.brake = pin.brake || pin.kB;
-  inp.throttle = inp.brake ? 0 : 1;
-  inp.drift = pin.drift || pin.kD;
-  // reposiciona se ficar preso muito tempo
-  if (Math.abs(k.speed) < 1.5 && !inp.brake) k.stuckT += dt; else k.stuckT = 0;
+  if (settings.ctl === 'arrastar') inp.steer += (target - inp.steer) * Math.min(1, dt * 20);
+  else {
+    // volante não vira instantâneo: toques curtos = correções pequenas
+    const rate = Math.abs(target) < Math.abs(inp.steer) || target * inp.steer < 0 ? 7 : 3.2;
+    inp.steer += clamp(target - inp.steer, -rate * dt, rate * dt);
+  }
+  inp.brake = pin.brake || pin.kB ? 1 : 0;
+  inp.throttle = inp.brake ? 0 : (settings.autoGas || pin.gas || pin.kG ? 1 : 0);
+  // reposiciona se ficar preso acelerando muito tempo
+  if (Math.abs(k.speed) < 1.5 && inp.throttle > 0) k.stuckT += dt; else k.stuckT = 0;
   if (k.stuckT > 3) { k.respawn(); flash('Reposicionado'); }
   const wrong = Math.cos(k.th) * tx[k.idx] + Math.sin(k.th) * tz[k.idx] < -0.3 && k.speed > 3;
   k.wrongT = wrong ? k.wrongT + dt : 0;
@@ -817,7 +827,6 @@ function step(dt) {
   collide(karts);
   for (const k of karts) updateProgress(k);
   if (stepN % 4 === 0) rank();
-  if (stepN % 30 === 0) rubberBand();
   if (!sim) {
     if (player.wallHit > 6) { buzz(20); }
     if (player.finished && state === 'racing') { state = 'finished'; finT = 0; rank(); flash(player.place + 'º lugar!'); sfx.finish(); }
@@ -833,7 +842,7 @@ let pHead = 0;
 for (let i = 0; i < PMAX; i++) pPos[i * 3 + 1] = -100;
 const pGeo = new T.BufferGeometry();
 pGeo.setAttribute('position', new T.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new T.BufferAttribute(pCol, 3));
-const points = new T.Points(pGeo, new T.PointsMaterial({ size: 0.5, vertexColors: true, transparent: true, blending: T.AdditiveBlending, depthWrite: false }));
+const points = new T.Points(pGeo, new T.PointsMaterial({ size: 0.7, vertexColors: true, transparent: true, opacity: 0.7, depthWrite: false }));
 points.frustumCulled = false; scene.add(points);
 function emit(x, y, z, vx, vy, vz, col, life) {
   const i = pHead; pHead = (pHead + 1) % PMAX;
@@ -844,18 +853,17 @@ function updateParticles(dt) {
     if (pLife[i] <= 0) continue;
     pLife[i] -= dt; const o = i * 3;
     if (pLife[i] <= 0) { pPos[o + 1] = -100; continue; }
-    pVel[o + 1] -= 7 * dt;
+    pVel[o + 1] -= 1.5 * dt;
     pPos[o] += pVel[o] * dt; pPos[o + 1] = Math.max(0.05, pPos[o + 1] + pVel[o + 1] * dt); pPos[o + 2] += pVel[o + 2] * dt;
-    const f = pLife[i] / pL0[i];
-    pCol[o] = pBase[o] * f; pCol[o + 1] = pBase[o + 1] * f; pCol[o + 2] = pBase[o + 2] * f;
+    pCol[o] = pBase[o]; pCol[o + 1] = pBase[o + 1]; pCol[o + 2] = pBase[o + 2];
   }
   pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
 }
-const C_WHITE = [1, 0.95, 0.7], C_BLUE = [0.29, 0.71, 1], C_ORANGE = [1, 0.45, 0.1], C_FIRE = [1, 0.7, 0.2];
+const C_SMOKE = [0.86, 0.86, 0.88], C_DUST = [0.72, 0.58, 0.38];
 
 // ================= Áudio =================
 const sfx = (() => {
-  let ctx = null, osc = null, gain = null, filt = null;
+  let ctx = null, osc = null, gain = null, filt = null, skidG = null;
   function init() {
     if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
     try {
@@ -864,6 +872,13 @@ const sfx = (() => {
       filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 700;
       gain = ctx.createGain(); gain.gain.value = 0;
       osc.connect(filt).connect(gain).connect(ctx.destination); osc.start();
+      // chiado de pneu: ruído filtrado
+      const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 4;
+      skidG = ctx.createGain(); skidG.gain.value = 0;
+      src.connect(bp).connect(skidG).connect(ctx.destination); src.start();
     } catch (e) { ctx = null; }
   }
   function tone(f, d, v, type) {
@@ -874,14 +889,14 @@ const sfx = (() => {
   }
   return {
     init,
-    engine(speed, on, boost) {
+    engine(speed, on, throttle, skid) {
       if (!ctx) return;
-      const t = ctx.currentTime;
-      gain.gain.setTargetAtTime(on && settings.sound ? 0.05 : 0, t, 0.08);
-      osc.frequency.setTargetAtTime(48 + Math.abs(speed) * 5.2 + (boost ? 35 : 0), t, 0.05);
+      const t = ctx.currentTime, snd = on && settings.sound;
+      gain.gain.setTargetAtTime(snd ? 0.035 + throttle * 0.03 : 0, t, 0.08);
+      osc.frequency.setTargetAtTime(62 + Math.abs(speed) * 8 + throttle * 12, t, 0.06);
+      skidG.gain.setTargetAtTime(snd ? Math.min(0.08, skid * 0.03) : 0, t, 0.05);
     },
     beep(hi) { tone(hi ? 880 : 440, hi ? 0.5 : 0.22, 0.12); },
-    boost() { tone(220, 0.35, 0.1, 'sawtooth'); tone(330, 0.3, 0.06, 'square'); },
     bump() { tone(90, 0.15, 0.15, 'triangle'); },
     finish() { tone(523, 0.18, 0.1); setTimeout(() => tone(659, 0.18, 0.1), 160); setTimeout(() => tone(784, 0.4, 0.1), 320); },
   };
@@ -890,7 +905,7 @@ function buzz(ms) { if (!settings.vibe) return; try { navigator.vibrate && navig
 
 // ================= HUD =================
 const hud = $('hud'), hPos = $('hPos'), hLap = $('hLap'), hTime = $('hTime'), hBest = $('hBest'), hSpd = $('hSpd');
-const hCount = $('hCount'), hMsg = $('hMsg'), hCharge = $('hCharge'), bDrift = $('bDrift');
+const hCount = $('hCount'), hMsg = $('hMsg'), hCharge = $('hCharge'), hGrip = $('hGrip');
 let msgTimer = 0;
 function flash(t, warn) { hMsg.textContent = t; hMsg.classList.add('show'); hMsg.classList.toggle('warn', !!warn); clearTimeout(msgTimer); msgTimer = setTimeout(() => hMsg.classList.remove('show'), 1600); }
 const mini = $('mini'), mg = mini.getContext('2d');
@@ -921,10 +936,13 @@ function updateHud() {
   setText(hTime, 'time', fmt(state === 'countdown' ? 0 : (player.finished ? player.finishTime : raceT)));
   setText(hBest, 'best', fmt(player.bestLap));
   setText(hSpd, 'spd', String(Math.round(Math.abs(player.speed) * CFG.kmh)));
-  const ch = player.drift ? player.charge : 0;
-  hCharge.style.width = Math.min(100, ch / 1.6 * 100) + '%';
-  hCharge.style.background = ch >= 1.6 ? 'var(--spark)' : ch >= 0.7 ? 'var(--ice)' : 'var(--paper)';
-  bDrift.classList.toggle('c1', ch >= 0.7 && ch < 1.6); bDrift.classList.toggle('c2', ch >= 1.6);
+  // uso da aderência dos pneus (círculo de atrito): 100% = no limite
+  const aMax = CFG.mu * G * (player.offroad ? CFG.muOff / CFG.mu : 1);
+  const use = Math.min(1, Math.hypot(player.aLat, player.aLong) / aMax);
+  const sliding = player.slide > 0.6 || player.under > 0.08;
+  hCharge.style.width = Math.round(use * 100) + '%';
+  hCharge.style.background = sliding ? '#e63946' : use > 0.85 ? 'var(--volt)' : 'var(--paper)';
+  setText(hGrip, 'grip', player.offroad ? 'FORA DA PISTA' : sliding ? (player.under > 0.08 ? 'SAINDO DE FRENTE' : 'DERRAPANDO') : 'ADERÊNCIA ' + (Math.hypot(player.aLat, player.aLong) / G).toFixed(1) + ' G');
   if (state === 'countdown') {
     const n = Math.ceil(countT - 0.5); const t = n > 0 ? String(n) : 'JÁ!';
     if (t !== lastCount) { lastCount = t; hCount.textContent = t; hCount.classList.remove('pop'); void hCount.offsetWidth; hCount.classList.add('pop'); sfx.beep(t === 'JÁ!'); if (t === 'JÁ!') buzz(40); }
@@ -943,25 +961,25 @@ window.addEventListener('resize', resize);
 function render(dt) {
   for (const k of karts) {
     const m = k.mesh;
-    k.visDrift += ((k.drift ? k.driftDir * 0.38 : 0) - k.visDrift) * Math.min(1, dt * 8);
     m.g.position.set(k.x, 0, k.z);
-    m.g.rotation.y = -(k.th + k.visDrift);
-    m.wheels[0].rotation.y = m.wheels[1].rotation.y = -k.input.steer * 0.45;
-    m.flame.visible = k.boostT > 0;
-    if (m.flame.visible) m.flame.scale.set(1, 0.8 + Math.random() * 0.6, 1);
+    m.g.rotation.y = -k.th;
+    m.wheels[0].rotation.y = m.wheels[1].rotation.y = -k.input.steer * steerMax(Math.abs(k.speed)) * 1.6;
     m.g.visible = !(k.ghostT > 0 && Math.floor(k.ghostT * 10) % 2);
-  }
-  // partículas do jogador
-  if (state === 'racing' || state === 'finished') {
-    const k = player, c = Math.cos(k.th), s = Math.sin(k.th);
-    if (k.drift) {
-      const col = k.charge >= 1.6 ? C_ORANGE : k.charge >= 0.7 ? C_BLUE : C_WHITE;
-      for (const sd of [-1, 1]) {
-        const x = k.x - c * 1.0 - s * sd * 0.8, z = k.z - s * 1.0 + c * sd * 0.8;
-        emit(x, 0.2, z, -c * 3 + (Math.random() - .5) * 4, 2 + Math.random() * 2, -s * 3 + (Math.random() - .5) * 4, col, 0.35);
+    // fumaça de pneu ao derrapar, poeira fora da pista (karts perto da câmera)
+    if ((state === 'racing' || state === 'finished') && dt > 0) {
+      const dxc = k.x - player.x, dzc = k.z - player.z;
+      if (dxc * dxc + dzc * dzc < 3600) {
+        const c = Math.cos(k.th), s = Math.sin(k.th), sp = Math.abs(k.speed);
+        const smoke = k.slide > 0.8 || k.under > 0.15 || (k.aLong < -9 && sp > 8);
+        const dust = k.offroad && sp > 4;
+        if ((smoke && Math.random() < 0.7) || (dust && Math.random() < 0.9)) {
+          const sd = Math.random() < 0.5 ? -1 : 1;
+          emit(k.x - c * 0.9 - s * sd * 0.8, 0.25, k.z - s * 0.9 + c * sd * 0.8,
+            -c * sp * 0.15 + (Math.random() - .5) * 1.5, 0.8 + Math.random(), -s * sp * 0.15 + (Math.random() - .5) * 1.5,
+            dust ? C_DUST : C_SMOKE, 0.6);
+        }
       }
     }
-    if (k.boostT > 0) emit(k.x - c * 1.9, 0.55, k.z - s * 1.9, -c * 6 + (Math.random() - .5) * 2, Math.random() * 2, -s * 6 + (Math.random() - .5) * 2, C_FIRE, 0.25);
   }
   updateParticles(dt);
   // câmera
@@ -972,16 +990,15 @@ function render(dt) {
     camera.fov = 55;
   } else {
     const k = player;
-    camYaw += wrapA(k.th + k.visDrift * 0.4 - camYaw) * Math.min(1, dt * 5);
+    camYaw += wrapA(k.th - camYaw) * Math.min(1, dt * 5);
     const c = Math.cos(camYaw), s = Math.sin(camYaw);
     const portrait = camera.aspect < 1;
     const back = portrait ? 9.5 : 7.4, up = portrait ? 4.6 : 3.3;
     camPos.set(k.x - c * back, up, k.z - s * back);
     if (camera.position.y > 60) camera.position.copy(camPos); else camera.position.lerp(camPos, 1 - Math.exp(-dt * 9));
     look.set(k.x + c * 5, 1.1, k.z + s * 5); camera.lookAt(look);
-    fovKick = Math.max(0, fovKick - dt * 1.5);
-    const base = portrait ? 78 : 68;
-    const ft = base + Math.max(0, k.speed) * 0.18 + (k.boostT > 0 ? 7 : 0);
+    const base = portrait ? 78 : 66;
+    const ft = base + Math.max(0, k.speed) * 0.2;
     camera.fov += (ft - camera.fov) * Math.min(1, dt * 4);
   }
   camera.updateProjectionMatrix();
@@ -1001,26 +1018,28 @@ function frame(now) {
   if (state !== 'menu') {
     updateHud();
     if (++frameN % 2 === 0) drawMini();
-    sfx.engine(player.speed, !paused && (state === 'racing' || state === 'finished' || state === 'countdown'), player.boostT > 0);
-  } else sfx.engine(0, false, false);
+    const rev = state === 'countdown' ? (pin.gas || pin.kG || settings.autoGas ? 1 : 0) : player.input.throttle;
+    sfx.engine(state === 'countdown' ? rev * 6 : player.speed, !paused && (state === 'racing' || state === 'finished' || state === 'countdown'), rev, player.slide + player.under * 4);
+  } else sfx.engine(0, false, 0, 0);
   render(paused ? 0 : dt);
 }
 
 // ================= Telas =================
 const menu = $('menu'), pauseOv = $('pauseOv'), results = $('results');
-function saveSettings() { store.set('cf.settings', settings); }
+function saveSettings() { store.set('cf2.settings', settings); }
 function refreshMenu() {
   document.querySelectorAll('#segDiff button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === settings.diff)));
   document.querySelectorAll('#segCtl button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === settings.ctl)));
+  $('tGas').setAttribute('aria-pressed', String(settings.autoGas));
   $('tAssist').setAttribute('aria-pressed', String(settings.assist));
   $('tSound').setAttribute('aria-pressed', String(settings.sound));
   $('tVibe').setAttribute('aria-pressed', String(settings.vibe));
   $('recDiff').textContent = DIFF[settings.diff].name;
-  $('rec').textContent = fmt(store.get('cf.best.' + settings.diff, Infinity));
+  $('rec').textContent = fmt(store.get('cf2.best.' + settings.diff, Infinity));
 }
 document.querySelectorAll('#segDiff button').forEach((b) => b.addEventListener('click', () => { settings.diff = b.dataset.v; saveSettings(); refreshMenu(); }));
 document.querySelectorAll('#segCtl button').forEach((b) => b.addEventListener('click', () => { settings.ctl = b.dataset.v; saveSettings(); refreshMenu(); }));
-for (const [id, key] of [['tAssist', 'assist'], ['tSound', 'sound'], ['tVibe', 'vibe']]) $(id).addEventListener('click', () => { settings[key] = !settings[key]; saveSettings(); refreshMenu(); });
+for (const [id, key] of [['tGas', 'autoGas'], ['tAssist', 'assist'], ['tSound', 'sound'], ['tVibe', 'vibe']]) $(id).addEventListener('click', () => { settings[key] = !settings[key]; saveSettings(); refreshMenu(); });
 
 function startRace() {
   sfx.init();
@@ -1050,7 +1069,7 @@ function showResults() {
   const me = rows.findIndex((r) => r.k === player) + 1;
   $('resTitle').textContent = me === 1 ? 'Vitória!' : me + 'º lugar';
   $('resBest').textContent = fmt(player.bestLap);
-  const key = 'cf.best.' + settings.diff, prev = store.get(key, Infinity);
+  const key = 'cf2.best.' + settings.diff, prev = store.get(key, Infinity);
   if (player.finishTime < prev) { store.set(key, player.finishTime); $('resRec').textContent = '· novo recorde!'; } else $('resRec').textContent = '';
   const body = $('resBody'); body.textContent = '';
   rows.forEach((r, i) => {
@@ -1102,9 +1121,9 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && (st
     const off = (e) => { if (ids.delete(e.pointerId) && !ids.size) { pin[key] = false; el.classList.remove('on'); } };
     el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off); el.addEventListener('lostpointercapture', off);
   }
-  hold($('bBrake'), 'brake'); hold($('bDrift'), 'drift');
+  hold($('bBrake'), 'brake'); hold($('bGas'), 'gas');
   $('app').addEventListener('contextmenu', (e) => e.preventDefault());
-  const keys = { ArrowLeft: 'kL', KeyA: 'kL', ArrowRight: 'kR', KeyD: 'kR', ArrowDown: 'kB', KeyS: 'kB', Space: 'kD', ShiftLeft: 'kD' };
+  const keys = { ArrowLeft: 'kL', KeyA: 'kL', ArrowRight: 'kR', KeyD: 'kR', ArrowDown: 'kB', KeyS: 'kB', ArrowUp: 'kG', KeyW: 'kG' };
   window.addEventListener('keydown', (e) => {
     if (keys[e.code]) { pin[keys[e.code]] = true; if (state !== 'menu') e.preventDefault(); }
     if (e.code === 'Escape' || e.code === 'KeyP') pause(!paused);
@@ -1126,7 +1145,7 @@ window.__corrida = {
     const out = {
       track: { length: +L.toFixed(1), minRadius: +(1 / Math.max(...Array.from(curvS, Math.abs))).toFixed(1) },
       time: +raceT.toFixed(1), wallSteps,
-      karts: standings.map((k) => ({ name: k.name, finished: k.finished, time: +k.finishTime.toFixed(2), best: +k.bestLap.toFixed(2), laps: k.lap, respawns: k.respawns })),
+      karts: standings.map((k) => ({ name: k.name, finished: k.finished, top: +(k.topSpeed * 3.6).toFixed(0), time: +k.finishTime.toFixed(2), best: +k.bestLap.toFixed(2), laps: k.lap, respawns: k.respawns })),
     };
     sim = false; autopilot = false; toMenu();
     return out;

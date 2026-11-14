@@ -115,7 +115,7 @@ button:focus-visible { outline: 3px solid var(--volt); outline-offset: 2px; }
 .pad.on { background: rgba(255, 210, 63, .35); transform: scale(.94); border-color: var(--volt); }
 .drag {
   position: absolute; pointer-events: auto;
-  left: 0; bottom: 0; width: 50%; height: 55%;
+  left: 0; bottom: 0; width: 50%; height: 72%;
 }
 .drag .rail {
   position: absolute;
@@ -260,15 +260,10 @@ tr.me td.t { color: var(--volt); }
     <div class="speedo">
       <div><span class="v" id="hSpd">0</span> <span class="u">KM/H</span></div>
       <div class="charge"><i id="hCharge"></i></div>
-      <div class="grip-lbl" id="hGrip">ADERÊNCIA</div>
     </div>
 
-    <div class="steer" id="steerBtns">
-      <div class="pad" id="bL" aria-label="Virar à esquerda"><svg viewBox="0 0 24 24"><path d="M15.5 3.5 6 12l9.5 8.5z"/></svg></div>
-      <div class="pad" id="bR" aria-label="Virar à direita"><svg viewBox="0 0 24 24"><path d="M8.5 3.5 18 12l-9.5 8.5z"/></svg></div>
-    </div>
-    <div class="drag" id="steerDrag" hidden>
-      <div class="rail"><div class="hint">ARRASTE PARA VIRAR</div><div class="knob" id="knob"></div></div>
+    <div class="drag" id="steerDrag">
+      <div class="rail" id="rail"><div class="knob" id="knob"></div></div>
     </div>
     <div class="actions">
       <div class="pad pedal brake" id="bBrake" aria-label="Freio e ré"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20 4 10h5V4h6v6h5z"/></svg>FREIO</div>
@@ -291,13 +286,6 @@ tr.me td.t { color: var(--volt); }
             <button id="dFacil" data-v="facil">Fácil</button>
             <button id="dMedio" data-v="medio">Médio</button>
             <button id="dDificil" data-v="dificil">Difícil</button>
-          </div>
-        </div>
-        <div class="opt">
-          <span class="lbl">Direção</span>
-          <div class="seg" id="segCtl">
-            <button id="cBtn" data-v="botoes">Botões</button>
-            <button id="cDrag" data-v="arrastar">Arrastar</button>
           </div>
         </div>
         <div class="toggles">
@@ -788,17 +776,12 @@ function playerInput(k, dt) {
     const out = (Math.cos(k.th) * nx[k.idx] + Math.sin(k.th) * nz[k.idx]) * Math.sign(k.lat);
     if (edge > 0 && out > 0.05) target = clamp(target - Math.sign(k.lat) * Math.min(0.7, edge * 0.35 + out), -1, 1);
   }
-  if (settings.ctl === 'arrastar') inp.steer += (target - inp.steer) * Math.min(1, dt * 20);
-  else {
-    // volante não vira instantâneo: toques curtos = correções pequenas
-    const rate = Math.abs(target) < Math.abs(inp.steer) || target * inp.steer < 0 ? 7 : 3.2;
-    inp.steer += clamp(target - inp.steer, -rate * dt, rate * dt);
-  }
+  inp.steer += (target - inp.steer) * Math.min(1, dt * 20);
   inp.brake = pin.brake || pin.kB ? 1 : 0;
   inp.throttle = inp.brake ? 0 : (settings.autoGas || pin.gas || pin.kG ? 1 : 0);
   // reposiciona se ficar preso acelerando muito tempo
   if (Math.abs(k.speed) < 1.5 && inp.throttle > 0) k.stuckT += dt; else k.stuckT = 0;
-  if (k.stuckT > 3) { k.respawn(); flash('Reposicionado'); }
+  if (k.stuckT > 3) k.respawn();
   const wrong = Math.cos(k.th) * tx[k.idx] + Math.sin(k.th) * tz[k.idx] < -0.3 && k.speed > 3;
   k.wrongT = wrong ? k.wrongT + dt : 0;
 }
@@ -897,7 +880,7 @@ function buzz(ms) { if (!settings.vibe) return; try { navigator.vibrate && navig
 
 // ================= HUD =================
 const hud = $('hud'), hPos = $('hPos'), hLap = $('hLap'), hTime = $('hTime'), hBest = $('hBest'), hSpd = $('hSpd');
-const hCount = $('hCount'), hMsg = $('hMsg'), hCharge = $('hCharge'), hGrip = $('hGrip');
+const hCount = $('hCount'), hMsg = $('hMsg'), hCharge = $('hCharge');
 let msgTimer = 0;
 function flash(t, warn) { hMsg.textContent = t; hMsg.classList.add('show'); hMsg.classList.toggle('warn', !!warn); clearTimeout(msgTimer); msgTimer = setTimeout(() => hMsg.classList.remove('show'), 1600); }
 const mini = $('mini'), mg = mini.getContext('2d');
@@ -934,7 +917,6 @@ function updateHud() {
   const sliding = player.slide > 0.6 || player.under > 0.08;
   hCharge.style.width = Math.round(use * 100) + '%';
   hCharge.style.background = sliding ? '#e63946' : use > 0.85 ? 'var(--volt)' : 'var(--paper)';
-  setText(hGrip, 'grip', player.offroad ? 'FORA DA PISTA' : sliding ? (player.under > 0.08 ? 'SAINDO DE FRENTE' : 'DERRAPANDO') : 'ADERÊNCIA ' + (Math.hypot(player.aLat, player.aLong) / G).toFixed(1) + ' G');
   if (state === 'countdown') {
     const n = Math.ceil(countT - 0.5); const t = n > 0 ? String(n) : 'JÁ!';
     if (t !== lastCount) { lastCount = t; hCount.textContent = t; hCount.classList.remove('pop'); void hCount.offsetWidth; hCount.classList.add('pop'); sfx.beep(t === 'JÁ!'); if (t === 'JÁ!') buzz(40); }
@@ -1021,7 +1003,6 @@ const menu = $('menu'), pauseOv = $('pauseOv'), results = $('results');
 function saveSettings() { store.set('cf2.settings', settings); }
 function refreshMenu() {
   document.querySelectorAll('#segDiff button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === settings.diff)));
-  document.querySelectorAll('#segCtl button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === settings.ctl)));
   $('tGas').setAttribute('aria-pressed', String(settings.autoGas));
   $('tAssist').setAttribute('aria-pressed', String(settings.assist));
   $('tSound').setAttribute('aria-pressed', String(settings.sound));
@@ -1030,7 +1011,6 @@ function refreshMenu() {
   $('rec').textContent = fmt(store.get('cf2.best.' + settings.diff, Infinity));
 }
 document.querySelectorAll('#segDiff button').forEach((b) => b.addEventListener('click', () => { settings.diff = b.dataset.v; saveSettings(); refreshMenu(); }));
-document.querySelectorAll('#segCtl button').forEach((b) => b.addEventListener('click', () => { settings.ctl = b.dataset.v; saveSettings(); refreshMenu(); }));
 for (const [id, key] of [['tGas', 'autoGas'], ['tAssist', 'assist'], ['tSound', 'sound'], ['tVibe', 'vibe']]) $(id).addEventListener('click', () => { settings[key] = !settings[key]; saveSettings(); refreshMenu(); });
 
 function startRace() {
@@ -1040,7 +1020,6 @@ function startRace() {
   state = 'countdown'; countT = 3.5; lastCount = ''; hudCache = {}; camYaw = player.th;
   camera.position.set(0, 999, 0);
   menu.hidden = true; results.hidden = true; pauseOv.hidden = true; hud.hidden = false;
-  $('steerBtns').hidden = settings.ctl !== 'botoes'; $('steerDrag').hidden = settings.ctl !== 'arrastar';
   rank();
   try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) { /* opcional */ }
 }
@@ -1084,27 +1063,21 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && (st
 
 // ================= Toque =================
 (function () {
-  const zone = $('steerBtns'), bL = $('bL'), bR = $('bR');
-  const ptrs = new Map();
-  function apply() {
-    let v = 0; for (const s of ptrs.values()) v += s;
-    pin.steer = settings.ctl === 'botoes' ? clamp(v, -1, 1) : pin.steer;
-    bL.classList.toggle('on', [...ptrs.values()].includes(-1)); bR.classList.toggle('on', [...ptrs.values()].includes(1));
-  }
-  function sideOf(e) { const r = zone.getBoundingClientRect(); return e.clientX < r.left + r.width / 2 ? -1 : 1; }
-  zone.addEventListener('pointerdown', (e) => { e.preventDefault(); try { zone.setPointerCapture(e.pointerId); } catch (_) {} ptrs.set(e.pointerId, sideOf(e)); apply(); });
-  zone.addEventListener('pointermove', (e) => { if (ptrs.has(e.pointerId)) { ptrs.set(e.pointerId, sideOf(e)); apply(); } });
-  const up = (e) => { if (ptrs.delete(e.pointerId)) { if (!ptrs.size) pin.steer = 0; apply(); } };
-  zone.addEventListener('pointerup', up); zone.addEventListener('pointercancel', up); zone.addEventListener('lostpointercapture', up);
-
-  const drag = $('steerDrag'), knob = $('knob');
+  const drag = $('steerDrag'), knob = $('knob'), rail = $('rail');
   let dId = null, dX = 0;
-  drag.addEventListener('pointerdown', (e) => { e.preventDefault(); dId = e.pointerId; dX = e.clientX; try { drag.setPointerCapture(e.pointerId); } catch (_) {} });
+  drag.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); if (dId !== null) return;
+    dId = e.pointerId; dX = e.clientX; try { drag.setPointerCapture(e.pointerId); } catch (_) {}
+    // o controle aparece onde o dedo tocar
+    const r = drag.getBoundingClientRect();
+    rail.style.left = clamp(e.clientX - r.left - 95, 0, r.width - 190) + 'px';
+    rail.style.bottom = clamp(r.bottom - e.clientY - 5, 0, r.height - 10) + 'px';
+  });
   drag.addEventListener('pointermove', (e) => {
     if (e.pointerId !== dId) return;
     const v = clamp((e.clientX - dX) / 70, -1, 1); pin.steer = v; knob.style.transform = 'translateX(' + (v * 70) + 'px)';
   });
-  const dUp = (e) => { if (e.pointerId === dId) { dId = null; pin.steer = 0; knob.style.transform = ''; } };
+  const dUp = (e) => { if (e.pointerId === dId) { dId = null; pin.steer = 0; knob.style.transform = ''; rail.style.left = rail.style.bottom = ''; } };
   drag.addEventListener('pointerup', dUp); drag.addEventListener('pointercancel', dUp); drag.addEventListener('lostpointercapture', dUp);
 
   function hold(el, key) {
